@@ -4,18 +4,11 @@ import sys
 from scipy.linalg import eigh, cho_solve, cho_factor, svd, pinvh, solve_triangular, cholesky
 import scipy.stats as stats
 
+import os
+import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
+
 def ks_test_normal_dist(x, alpha = 0.05):
-    """
-    stats.kstest returns:
-
-              1. KS statistic
-              2. pvalue
-
-    if pvalue > 0.05 (5%) we accept the null hypothesis:
-
-    H0: our random variable from simulation follow the distribution with
-        the parameters obtained from 'stats.dist.fit'. 
-    """
     ks = stats.kstest(x, 'norm', stats.norm.fit(x))
     p_value = ks[1]
     result = 'accept' if p_value > alpha else 'reject'
@@ -92,6 +85,72 @@ def syminv_psd(a):
         
     return inv
 
+# ------------------------------------------------------------------------------------------------ #
+# Correlation matrices of background error covariance (Pb) and localized background error covariance (Pb_loc) for FIG. 1 and FIG. 2.
+# ------------------------------------------------------------------------------------------------ #
+
+def cov_from_xptb(xptb):
+    nems = xptb.shape[0]
+    return (xptb.T @ xptb) / (nems - 1.0)
+
+def corr_from_cov(P, eps=1e-12):
+    # covariance matrix -> correlation matrix
+    std = np.sqrt(np.diag(P))
+    denom = np.outer(std, std)
+    C = P / (denom + eps)
+    return np.clip(C, -1.0, 1.0)
+
+def plot_pb_pair(Pb_raw, Pb_loc, savepath):
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    im0 = axes[0].imshow(Pb_raw, origin="lower", aspect="auto")
+    axes[0].set_title("Pb raw")
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+
+    im1 = axes[1].imshow(Pb_loc, origin="lower", aspect="auto")
+    axes[1].set_title("Pb* (tapered)")
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    plt.tight_layout()
+    plt.savefig(savepath, dpi=200, bbox_inches="tight")
+    plt.close()
+
+def plot_pb_pair_corr(Pb_raw, Pb_loc, savepath):
+    Cb_raw  = corr_from_cov(Pb_raw)
+    Cb_star = corr_from_cov(Pb_loc)
+
+    norm = TwoSlopeNorm(vmin=-1.0, vcenter=0.0, vmax=1.0)
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    im0 = axes[0].imshow(
+        Cb_raw,
+        origin="lower",
+        aspect="auto",
+        cmap="RdBu_r",
+        norm=norm
+    )
+    axes[0].set_title("Corr(Pb raw)")
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+
+    im1 = axes[1].imshow(
+        Cb_star,
+        origin="lower",
+        aspect="auto",
+        cmap="RdBu_r",
+        norm=norm
+    )
+    axes[1].set_title("Corr(Pb*)")
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    plt.tight_layout()
+    plt.savefig(savepath, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
+# ------------------------------------------------------------------------------------------------ #
+# The implementation of LETKF, GETKF, and MLETKF 
+# ------------------------------------------------------------------------------------------------ #
+
 def letkf(xmean, xptb, h, h_type, obs, obs_r, obs_rloc, mpi, comm, myrank):
     """LETKF (with R-localization)"""
 
@@ -148,9 +207,14 @@ def getkf_modens(xmean, xptb, h, h_type, obs, obs_r, z):
     nems, ndim = xptb.shape
     nobs = obs.shape[-1]
     svd_calc = True
+    corr_plot = False
     
     if z is None:
         raise ValueError('z not specified')                                         # z = W^T
+    
+    if corr_plot:
+        os.makedirs("./", exist_ok=True)
+        Pb_raw = cov_from_xptb(xptb)
         
     # modulation ensemble
     neig = z.shape[0]                                                               # number of eigenvalues
@@ -166,6 +230,11 @@ def getkf_modens(xmean, xptb, h, h_type, obs, obs_r, z):
             iens_modens += 1
             
     xptb_modens = np.sqrt(float(nems_modens-1)/float(nems-1))*xptb_modens
+
+    if corr_plot:
+        Pb_loc = cov_from_xptb(xptb_modens)
+        plot_pb_pair(Pb_raw, Pb_loc, os.path.join("./", "Pb_raw_vs_Pb_loc.png"))
+        plot_pb_pair_corr(Pb_raw,Pb_loc,"./Corr_Pb_raw_vs_Pb_loc.png")
         
     # data assimilation
     if h_type == 0:                                                                 # linear h(x)=x (for simulation)
@@ -243,9 +312,15 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
     svd_calc = True        # True: singular value decomposition, False: eigenvalue decomposition
     noLoc = False          # True: MLETKF-noLoc, False: MLETKF
     use_zloc = True       # True: use Z-localization for perturbation update, False: use R-localization for perturbation update
+    bloc_corr_plot = False
+    zloc_corr_plot = False
 
     if z is None:
         raise ValueError('z not specified')                                         # z = W^T
+    
+    if bloc_corr_plot:
+        os.makedirs("./", exist_ok=True)
+        Pb_raw = cov_from_xptb(xptb)
 
     # modulation ensemble
     neig = z.shape[0]                                                               # number of eigenvalues
@@ -262,6 +337,11 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
 
     xptb_modens = np.sqrt(float(nems_modens-1)/float(nems-1))*xptb_modens
     
+    if bloc_corr_plot:
+        Pb_loc = cov_from_xptb(xptb_modens)
+        plot_pb_pair(Pb_raw, Pb_loc, "./Pb_raw_vs_Pb_loc.png")
+        plot_pb_pair_corr(Pb_raw,Pb_loc,"./Corr_Pb_raw_vs_Pb_loc.png")
+
     # data assimilation
     if h_type == 0:                                                                 # linear h(x)=x (for simulation)
         zptb = np.empty((nems, nobs), xptb.dtype)
@@ -344,11 +424,21 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
             if n < ndim:
                 rho = obs_rloc[n, :]
                 if use_zloc:
+                    if zloc_corr_plot:
+                        n0 = 20        # reference grid point for applying and visualizing Z-localization
+                        Pb_raw = cov_from_xptb(xptb)
+
                     rho = locmtx_pert[n, :]
                     xptb_star = xptb * np.sqrt(rho)[None, :]
                     x_star = xmean + xptb_star
 
+                    if zloc_corr_plot and (n == n0):
+                        Pb_star = cov_from_xptb(xptb_star)
+                        plot_pb_pair(Pb_raw, Pb_star, savepath=f"./Pb_check_n{n0}.png")
+                        plot_pb_pair_corr(Pb_raw, Pb_star, savepath=f"./Corr_Pb_check_n{n0}.png")
+
                     Z_star = np.empty((nems, nobs), dtype=xptb.dtype)
+
                     for iens in range(nems):
                         y = h @ x_star[iens]
                         Z_star[iens] = nonlinear_h(y, h_type)
