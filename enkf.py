@@ -327,6 +327,7 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
     nems_modens = neig*nems
     iens_modens = 0
 
+    xmean_b = xmean.copy()
     xptb_modens = np.zeros((nems_modens,ndim),xptb.dtype)
 
     for j in range(neig):
@@ -430,7 +431,7 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
 
                     rho = locmtx_pert[n, :]
                     xptb_star = xptb * np.sqrt(rho)[None, :]
-                    x_star = xmean + xptb_star
+                    x_star = xmean_b + xptb_star
 
                     if zloc_corr_plot and (n == n0):
                         Pb_star = cov_from_xptb(xptb_star)
@@ -443,7 +444,7 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
                         y = h @ x_star[iens]
                         Z_star[iens] = nonlinear_h(y, h_type)
 
-                    ymean_mod = h @ xmean               # use analysis mean from GETKF
+                    ymean_mod = h @ xmean_b               # use analysis mean from GETKF
 
                     zptb_star  = Z_star - ymean_mod
 
@@ -463,13 +464,5 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
 
             comm.Allgather(tmp_xptb, xptb_T)
             xptb = xptb_T.T
-        else:
-        # LETKF (implicit R-loc)
-            for n in range(ndim):
-                Rinv = np.diag(obs_rloc[n,:]/obs_r)
-                C = np.dot(zptb, Rinv)
-                sqrt_pa, pa = symsqrtinv_psd((nems-1)*np.eye(nems)+np.dot(C,zptb.T))
-                Wa = np.sqrt(nems-1)*sqrt_pa
-                xptb[:,n] = np.dot(Wa.T, xptb[:,n])
 
     return xmean, xptb, 1.
