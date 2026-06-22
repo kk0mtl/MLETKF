@@ -311,7 +311,7 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
     nobs = obs.shape[-1]
     svd_calc = True        # True: singular value decomposition, False: eigenvalue decomposition
     noLoc = False          # True: MLETKF-noLoc, False: MLETKF
-    use_zloc = True       # True: use Z-localization for perturbation update, False: use R-localization for perturbation update
+    use_zloc = False       # True: use Z-localization for perturbation update, False: use R-localization for perturbation update
     bloc_corr_plot = False
     zloc_corr_plot = False
 
@@ -444,9 +444,11 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
                         y = h @ x_star[iens]
                         Z_star[iens] = nonlinear_h(y, h_type)
 
-                    ymean_mod = h @ xmean_b               # use analysis mean from GETKF
+                    #ymean_mod = h @ xmean_b                    # h is linear
+                    ymean_star = np.mean(Z_star, axis=0)        # h is non-linear
 
-                    zptb_star  = Z_star - ymean_mod
+                    #zptb_star  = Z_star - ymean_mod
+                    zptb_star  = Z_star - ymean_star[None, :] 
 
                     Rinv = 1.0 / obs_r
                     C = zptb_star * Rinv
@@ -455,12 +457,6 @@ def mletkf(xmean, xptb, h, h_type, obs, obs_r, locmtx, obs_rloc, z, mpi=False, c
                     sqrt_pa, _ = symsqrtinv_psd(A)
                     Wa = np.sqrt(nems - 1) * sqrt_pa 
                     tmp_xptb[:] = np.dot(Wa.T, xptb_star[:, n])
-                else:
-                    weight = obs_rloc[n,:]/obs_r
-                    C = zptb * weight                                                  # zptb: (Yb)^T
-                    sqrt_pa, pa = symsqrtinv_psd((nems-1)*np.eye(nems)+np.dot(C,zptb.T))
-                    Wa = np.sqrt(nems-1)*sqrt_pa
-                    tmp_xptb = np.dot(Wa.T, xptb[:,n])
 
             comm.Allgather(tmp_xptb, xptb_T)
             xptb = xptb_T.T

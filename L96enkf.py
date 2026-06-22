@@ -1151,9 +1151,7 @@ class L96enkf:
             print(f"[Saved] {txt_path}")
 
     # plot background RMSE for figure 3, 4, 5
-    def plot_state_timeseries(obj, var_idx=0, use_time_in_steps=True,
-                            t_start=None, t_end=None,
-                            show_background=False):
+    def plot_state_timeseries(obj, var_idx=0):
         ftname = "MLETKF-Z"
         save = True
         g_color = "tab:red"
@@ -1167,9 +1165,7 @@ class L96enkf:
 
         plt.figure(figsize=(12, 2.5))
         plt.plot(t, x_true[m, var_idx], color="black", linewidth=1.5)
-        plt.plot(t, x_a[m, var_idx], color=g_color, label=ftname, linestyle="--", linewidth=1.5)
-        if show_background:
-            plt.plot(t, x_b[m, var_idx], color=g_color, label="Background mean", linestyle=":", linewidth=1.2)
+        plt.plot(t, x_b[m, var_idx], color=g_color, label=ftname, linestyle="--", linewidth=1.5)
 
         plt.xlabel("Time steps")
         plt.ylabel("x")
@@ -1180,9 +1176,9 @@ class L96enkf:
 
         if save:
             fname = f"state_var{var_idx}.png"
-            plt.savefig(f"./{fname}", dpi=200, bbox_inches="tight")
+            plt.savefig(f"./{fname}", dpi=400, bbox_inches="tight")
             print(f"[Saved] ./{fname}")     
-                   
+
 if __name__ == "__main__":
     # [GETKF] LETKF, GETKF (with modulated ensemble) 
     errstddev = 1.0                                 # observation error standard deviation
